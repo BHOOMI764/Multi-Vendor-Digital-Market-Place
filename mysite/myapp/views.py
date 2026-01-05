@@ -7,6 +7,8 @@ import stripe,json
 from .forms import ProductForm,UserRegistrationForm
 from django.db.models import Sum
 import datetime
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth import logout
 # Create your views here.
 def index(request):
     products = Product.objects.all()
@@ -46,10 +48,16 @@ def create_checkout_session(request,id):
         
     )
     
+    # Stripe Checkout Session may not include `payment_intent` immediately.
+    # Store the session id as a fallback so the order can be looked up later.
     order = OrderDetail()
     order.customer_email = request_data['email']
     order.product = product
-    order.stripe_payment_intent = checkout_session['payment_intent']
+    spi = checkout_session.get('payment_intent') if isinstance(checkout_session, dict) else getattr(checkout_session, 'payment_intent', None)
+    if not spi:
+        # fallback to session id
+        spi = checkout_session.get('id') if isinstance(checkout_session, dict) else getattr(checkout_session, 'id', None)
+    order.stripe_payment_intent = spi
     order.amount = int(product.price)
     order.save()
     
@@ -61,7 +69,17 @@ def payment_success_view(request):
         return HttpResponseNotFound()
     stripe.api_key = settings.STRIPE_SECRET_KEY
     session = stripe.checkout.Session.retrieve(session_id)
-    order = get_object_or_404(OrderDetail,stripe_payment_intent= session.payment_intent)
+    # Try to find order by payment_intent first, then by session id (stored as fallback).
+    payment_intent = getattr(session, 'payment_intent', None)
+    order = None
+    if payment_intent:
+        try:
+            order = OrderDetail.objects.get(stripe_payment_intent=payment_intent)
+        except OrderDetail.DoesNotExist:
+            order = None
+    if not order:
+        session_key = getattr(session, 'id', None)
+        order = get_object_or_404(OrderDetail, stripe_payment_intent=session_key)
     order.has_paid=True
     # updating sales stats for a product
     product = Product.objects.get(id=order.product.id)
@@ -76,6 +94,7 @@ def payment_success_view(request):
 def payment_failed_view(request):
     return render(request,'myapp/failed.html')
 
+@login_required
 def create_product(request):
     if request.method =='POST':
         product_form = ProductForm(request.POST,request.FILES)
@@ -88,6 +107,7 @@ def create_product(request):
     product_form = ProductForm()
     return render(request, 'myapp/create_product.html',{'product_form':product_form})
 
+@login_required
 def product_edit(request,id):
     product = Product.objects.get(id=id)
     if product.seller != request.user:
@@ -101,6 +121,7 @@ def product_edit(request,id):
     return render(request,'myapp/product_edit.html',{'product_form':product_form,'product':product})
 
 
+@login_required
 def product_delete(request,id):
     product = Product.objects.get(id=id)
     if product.seller != request.user:
@@ -110,6 +131,7 @@ def product_delete(request,id):
         return redirect('index')
     return render(request, 'myapp/delete.html',{'product':product})
 
+@login_required
 def dashboard(request):
     products = Product.objects.filter(seller=request.user)
     return render(request, 'myapp/dashboard.html',{'products':products})
@@ -117,21 +139,27 @@ def dashboard(request):
 def register(request):
     if request.method == 'POST':
         user_form = UserRegistrationForm(request.POST)
-        new_user = user_form.save(commit=False)
-        new_user.set_password(user_form.cleaned_data['password'])
-        new_user.save()
-        return redirect('index')
-    user_form = UserRegistrationForm()
+        if user_form.is_valid():
+            new_user = user_form.save(commit=False)
+            new_user.set_password(user_form.cleaned_data['password'])
+            new_user.save()
+            return redirect('index')
+    else:
+        user_form = UserRegistrationForm()
     return render(request,'myapp/register.html',{'user_form':user_form})
 
 def invalid(request):
     return render(request, 'myapp/invalid.html')
 
 def my_purchases(request):
+    if not request.user.is_authenticated:
+        return redirect('login')
     orders = OrderDetail.objects.filter(customer_email=request.user.email)
     return render(request, 'myapp/purchases.html',{'orders':orders})
 
 def sales(request):
+    if not request.user.is_authenticated:
+        return redirect('login')
     orders = OrderDetail.objects.filter(product__seller=request.user)
     total_sales = orders.aggregate(Sum('amount'))
     print(total_sales)
@@ -160,3 +188,7 @@ def sales(request):
     print(product_sales_sums)
 
     return render(request, 'myapp/sales.html',{'total_sales':total_sales,'yearly_sales':yearly_sales,'monthly_sales':monthly_sales,'weekly_sales':weekly_sales,'daily_sales_sums':daily_sales_sums,'product_sales_sums':product_sales_sums})
+
+def logout_view(request):
+    logout(request)
+    return redirect('index')

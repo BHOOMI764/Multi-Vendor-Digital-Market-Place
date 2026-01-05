@@ -13,7 +13,7 @@ urlpatterns = [
     path('dashboard',views.dashboard,name='dashboard'),
     path('register/',views.register,name='register'),
     path('login/',auth_views.LoginView.as_view(template_name='myapp/login.html'),name='login'),
-    path('logout/',auth_views.LogoutView.as_view(template_name='myapp/logout.html'),name='logout'),
+    path('logout/',views.logout_view,name='logout'),
     path('invalid/',views.invalid,name='invalid'),
     path('purchases/',views.my_purchases,name='purchases'),
     path('sales/',views.sales,name='sales'),
