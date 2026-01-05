@@ -60,11 +60,5 @@ Open http://127.0.0.1:8000/ in your browser.
 ## Templates
 Templates live under `myapp/templates/myapp/` and include pages such as `index.html`, `detail.html`, `dashboard.html`, `login.html`, and `register.html`.
 
-## Notes
-- This README is a minimal guide to get the app running locally. For production deployment, configure static/media settings, a production-ready database, and secure SECRET_KEY and Stripe/API credentials.
 
-## Need help?
-If you want, I can also:
-- add a `requirements.txt` generated from your virtualenv
-- add `Procfile`/deployment notes
-- document environment variables used by payments
+
